@@ -22,7 +22,6 @@ save_squeue_csv = args.save
 logger = logging.getLogger()
 FORMAT = "%(message)s"
 directory = os.path.join(Path.home(), "slurm")
-print(directory)
 logging.basicConfig(filename=os.path.join(directory, "monitoring.log"), filemode="w", level=logging.INFO, format=FORMAT)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
