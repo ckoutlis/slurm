@@ -7,7 +7,7 @@ import os
 import numpy as np
 import argparse
 import re
-import json
+from pathlib import Path
 
 parser = argparse.ArgumentParser(description="Experiments")
 parser.add_argument(
@@ -21,7 +21,8 @@ save_squeue_csv = args.save
 
 logger = logging.getLogger()
 FORMAT = "%(message)s"
-directory = "/mnt/cephfs/home/ckoutlis/slurm"
+directory = os.path.join(Path.home(), "slurm")
+print(directory)
 logging.basicConfig(filename=os.path.join(directory, "monitoring.log"), filemode="w", level=logging.INFO, format=FORMAT)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
@@ -213,9 +214,7 @@ logger.info(df_per_node)
 
 def get_job_info(jobid):
     job = subprocess.check_output(f"scontrol show job -d {jobid}", shell=True)
-    info = dict(
-        [z.split("=", 1) for y in job.decode("utf-8").split("\n") for z in y.split(" ") if "=" in z]
-    )  # TODO: change with regular expression, when job name has space (" ") it crashes
+    info = dict([z.split("=", 1) for y in job.decode("utf-8").split("\n") for z in y.split(" ") if "=" in z])
     return info
 
 
