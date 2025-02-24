@@ -86,11 +86,11 @@ def get_info_per_user(data):
         )
         sum_gpu_mem = 0
         for x in data["TRES_PER_NODE"][data["USER"] == user].tolist():
-            if "gres/shard:" in x:
+            if "gres/shard" in x:
                 sum_gpu_mem += int(
                     x[
                         x.rfind(
-                            ":",
+                            "=" if "=" in x else ":",
                         )
                         + 1 :
                     ]
@@ -121,7 +121,7 @@ tot_cpus = sum(
 tot_host_mem = int(df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["MEMORY"].astype(int).sum() / 1000)
 tot_gpu_mem = sum(
     [
-        int(y[y.rfind(":") + 1 :])
+        int(y[y.rfind("=" if "=" in y else ":") + 1 :])
         for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["GRES"].tolist()
         for y in x.split(",")
         if "shard" in y
@@ -182,14 +182,15 @@ for node in nodes:
             used_node_gpu_mem += int(
                 x[
                     x.rfind(
-                        ":",
+                        "=" if "=" in x else ":",
                     )
                     + 1 :
                 ]
             )
+
     tot_node_gpu_mem = sum(
         [
-            int(y[y.rfind(":") + 1 :])
+            int(y[y.rfind("=" if "=" in y else ":") + 1 :])
             for y in df_sinfo[df_sinfo["HOSTNAMES"] == node]["GRES"].values[0].split(",")
             if "shard" in y
         ]
