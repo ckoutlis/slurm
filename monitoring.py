@@ -74,6 +74,30 @@ for line in lines[1:]:
 df_per_job_pending = pd.DataFrame(data=data_pending, columns=columns)
 
 
+# Per metric
+node_up_states = ["mix", "alloc", "idle"]
+sinfo_command = "sinfo --format='%.10n | %.5t | %.7z | %.8e | %.7m | %.9O | %.13C | %G'"
+sinfo = subprocess.check_output(sinfo_command, shell=True)
+lines = sinfo.splitlines()
+data = []
+columns = [x.replace(" ", "") for x in lines[0].decode("UTF-8").split("|")]
+for line in lines[1:]:
+    data.append([x.replace(" ", "") for x in line.decode("UTF-8").split("|")])
+df_sinfo = pd.DataFrame(data=data, columns=columns)
+tot_cpus = sum(
+    [int(x.split("/")[-1]) for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["CPUS(A/I/O/T)"].tolist()]
+)
+tot_host_mem = int(df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["MEMORY"].astype(int).sum() / 1000)
+tot_gpu_mem = sum(
+    [
+        int(y[y.rfind("=" if "=" in y else ":") + 1 :])
+        for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["GRES"].tolist()
+        for y in x.split(",")
+        if "shard" in y
+    ]
+)
+# Break: it will continue after Per user...
+
 # Per user
 metrics = ["JOBS", "CPUS", "HOST_MEM_GB", "GPU_MEM_GB"]
 
@@ -99,6 +123,20 @@ def get_info_per_user(data):
                     ]
                 )
         df.loc[user, "GPU_MEM_GB"] = sum_gpu_mem
+    tot_jobs = df["JOBS"].sum()
+    jobs_p = []
+    cpus_p = []
+    host_mem_gb_p = []
+    gpu_mem_gb_p = []
+    for user in users:
+        jobs_p.append(f"{df.loc[user, "JOBS"]/tot_jobs*100:1.1f}%")
+        cpus_p.append(f"{df.loc[user, 'CPUS']/tot_cpus*100:1.1f}%")
+        host_mem_gb_p.append(f"{df.loc[user, 'HOST_MEM_GB']/tot_host_mem*100:1.1f}%")
+        gpu_mem_gb_p.append(f"{df.loc[user, 'GPU_MEM_GB']/tot_gpu_mem*100:1.1f}%")
+    df.insert(1, "JOBS_P", jobs_p)
+    df.insert(3, "CPUS_P", cpus_p)
+    df.insert(5, "HOST_MEM_GB_P", host_mem_gb_p)
+    df.insert(7, "GPU_MEM_GB_P", gpu_mem_gb_p)
     return df
 
 
@@ -108,29 +146,7 @@ logger.info(df_per_user.sort_values(by="GPU_MEM_GB", ascending=False))
 logger.info("\nAggregate pending resources per user")
 logger.info(get_info_per_user(df_per_job_pending).sort_values(by="GPU_MEM_GB", ascending=False))
 
-# Per metric
-node_up_states = ["mix", "alloc", "idle"]
-sinfo_command = "sinfo --format='%.10n | %.5t | %.7z | %.8e | %.7m | %.9O | %.13C | %G'"
-sinfo = subprocess.check_output(sinfo_command, shell=True)
-lines = sinfo.splitlines()
-data = []
-columns = [x.replace(" ", "") for x in lines[0].decode("UTF-8").split("|")]
-for line in lines[1:]:
-    data.append([x.replace(" ", "") for x in line.decode("UTF-8").split("|")])
-df_sinfo = pd.DataFrame(data=data, columns=columns)
-tot_cpus = sum(
-    [int(x.split("/")[-1]) for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["CPUS(A/I/O/T)"].tolist()]
-)
-tot_host_mem = int(df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["MEMORY"].astype(int).sum() / 1000)
-tot_gpu_mem = sum(
-    [
-        int(y[y.rfind("=" if "=" in y else ":") + 1 :])
-        for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["GRES"].tolist()
-        for y in x.split(",")
-        if "shard" in y
-    ]
-)
-
+# Continue from Per metric...
 df_per_metric = pd.DataFrame(columns=metrics[1:])
 used = df_per_user[metrics[1:]].sum().values
 used_cpus = used[0]
