@@ -129,7 +129,7 @@ def get_info_per_user(data):
     host_mem_gb_p = []
     gpu_mem_gb_p = []
     for user in users:
-        jobs_p.append(f"{df.loc[user, "JOBS"]/tot_jobs*100:1.1f}%")
+        jobs_p.append(f"{df.loc[user, 'JOBS']/tot_jobs*100:1.1f}%")
         cpus_p.append(f"{df.loc[user, 'CPUS']/tot_cpus*100:1.1f}%")
         host_mem_gb_p.append(f"{df.loc[user, 'HOST_MEM_GB']/tot_host_mem*100:1.1f}%")
         gpu_mem_gb_p.append(f"{df.loc[user, 'GPU_MEM_GB']/tot_gpu_mem*100:1.1f}%")
