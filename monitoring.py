@@ -44,6 +44,9 @@ echo
 echo /================        SQUEUE:ME:PENDING           ===============/
 squeue --start --format="%.6A %.16i %.10j %.10u %.8T %.5c %.7m %.15b %.10M %.12l %.5D %.17R" --me -t PENDING
 echo
+echo /================        SPRIO           ===============/
+sprio -o "%.15i %.8u %.15o %.10Y %.10F %.10n %.10Q"
+echo
 """
 jobs = subprocess.check_output(basic_info_commands, shell=True)
 for line in jobs.splitlines():
