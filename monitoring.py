@@ -181,7 +181,7 @@ for node in nodes:
     # GPU MEM
     used_node_gpu_mem = 0
     for x in df_per_job["TRES_PER_NODE"][df_per_job["NODELIST"] == node].tolist():
-        if "gres/shard:" in x:
+        if "gres/shard" in x:
             used_node_gpu_mem += int(
                 x[
                     x.rfind(
@@ -272,4 +272,4 @@ for node in shards:
             ]
         )
 df_per_gpu = pd.DataFrame(data=data, columns=["node", "device", "used", "free", "total"])
-logger.info(df_per_gpu)
+logger.info(df_per_gpu.sort_values(by="free", ascending=True).to_string(index=False))
