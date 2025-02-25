@@ -36,13 +36,13 @@ echo /================        NODES INFO           ===============/
 sinfo --format="%.10n | %.5t | %.7z | %.8e | %.7m | %.9O | %.13C | %G"
 echo
 echo /================        SQUEUE:ALL           ===============/
-squeue --format="%.6A %.16i %.10j %.10u %.8T %.5c %.7m %.22b %.10M %.12l %.5D %.17R"
+squeue --format="%.6A %.16i %.10j %.10u %.3t %.5c %.7m %.15b %.16S %.10M %.12l %.5D %.17R"
 echo 
 echo /================        SQUEUE:ME:RUNNING           ===============/
-squeue --format="%.6A %.16i %.10j %.10u %.8T %.5c %.7m %.15b %.10M %.12l %.5D %.17R" --me -t RUNNING
+squeue --format="%.6A %.16i %.10j %.10u %.3t %.5c %.7m %.15b %.16S %.10M %.12l %.5D %.17R" --me -t RUNNING
 echo 
 echo /================        SQUEUE:ME:PENDING           ===============/
-squeue --start --format="%.6A %.16i %.10j %.10u %.8T %.5c %.7m %.15b %.10M %.12l %.5D %.17R" --me -t PENDING
+squeue --start --format="%.6A %.16i %.10j %.10u %.3t %.5c %.7m %.15b %.16S %.11Y %.12l %.5D %.17R" --me -t PENDING
 echo
 echo /================        SPRIO           ===============/
 sprio -o "%.15i %.8u %.15o %.10Y %.10F %.10n %.10Q"
