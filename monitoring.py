@@ -254,8 +254,9 @@ for jobid in running_jobids:
     info = get_job_info(jobid)
     node = info["Nodes"]
     devices = [
-        device if device[-1] != "," else device[:-1] for device in info["GRES"].split("shard:")[1:]
-    ]  # TODO: include cases of gres/gpu:x:n
+        device if device[-1] != "," else device[:-1]
+        for device in info["GRES"].split("shard:" if "shard:" in info["GRES"] else "gpu:")[1:]
+    ]
     if node not in shards:
         shards[node] = {}
     shards_d0 = 0
@@ -277,14 +278,21 @@ for jobid in running_jobids:
                 shards_d0 += int(match.group(3))
                 if f"device_{i}" not in shards[node]:
                     shards[node][f"device_{i}"] = {"name": device_name, "total": int(match.group(4))}
+            else:
+                match = re.match(r"(\w+):(\d+)\(IDX:(\d+)\)", text)
+                device_name = match.group(1)
+                device_id = match.group(3)
+                exec(f"shards_d{device_id} += gpu_type_mem[device_name]")
+                if f"device_{device_id}" not in shards[node]:
+                    shards[node][f"device_{device_id}"] = {"name": device_name, "total": gpu_type_mem[device_name]}
     if "device_0" in shards[node] and "used" not in shards[node]["device_0"]:
         shards[node]["device_0"]["used"] = shards_d0
-        if "device_1" in shards[node] and "used" not in shards[node]["device_1"]:
-            shards[node]["device_1"]["used"] = shards_d1
     elif "device_0" in shards[node] and "used" in shards[node]["device_0"]:
         shards[node]["device_0"]["used"] += shards_d0
-        if "device_1" in shards[node] and "used" in shards[node]["device_1"]:
-            shards[node]["device_1"]["used"] += shards_d1
+    if "device_1" in shards[node] and "used" not in shards[node]["device_1"]:
+        shards[node]["device_1"]["used"] = shards_d1
+    elif "device_1" in shards[node] and "used" in shards[node]["device_1"]:
+        shards[node]["device_1"]["used"] += shards_d1
 data = []
 for node in shards:
     for i, device in enumerate(shards[node]):
