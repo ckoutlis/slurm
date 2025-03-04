@@ -26,6 +26,9 @@ logging.basicConfig(filename=os.path.join(directory, "monitoring.log"), filemode
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 
+
+gpu_type_mem = {"rtx4090": 24, "rtx3060": 12, "rtx3090ti": 24, "rtx4080": 16, "gtx1080": 8}
+
 squeue_csv_path = os.path.join(directory, "monitoring.csv")
 if save_squeue_csv != "y" and os.path.exists(squeue_csv_path):
     os.remove(squeue_csv_path)
@@ -122,6 +125,9 @@ def get_info_per_user(data):
                         + 1 :
                     ]
                 )
+            elif "gres/gpu" in x:
+                gpu_type, gpu_num = x[x.find("gres/gpu") + 9 :].split(":")
+                sum_gpu_mem += gpu_type_mem[gpu_type] * int(gpu_num)
         df.loc[user, "GPU_MEM_GB"] = sum_gpu_mem
     tot_jobs = df["JOBS"].sum()
     jobs_p = []
@@ -206,6 +212,9 @@ for node in nodes:
                     + 1 :
                 ]
             )
+        elif "gres/gpu" in x:
+            gpu_type, gpu_num = x[x.find("gres/gpu") + 9 :].split(":")
+            used_node_gpu_mem += gpu_type_mem[gpu_type] * int(gpu_num)
 
     tot_node_gpu_mem = sum(
         [
@@ -244,7 +253,9 @@ shards = {}
 for jobid in running_jobids:
     info = get_job_info(jobid)
     node = info["Nodes"]
-    devices = [device if device[-1] != "," else device[:-1] for device in info["GRES"].split("shard:")[1:]]
+    devices = [
+        device if device[-1] != "," else device[:-1] for device in info["GRES"].split("shard:")[1:]
+    ]  # TODO: include cases of gres/gpu:x:n
     if node not in shards:
         shards[node] = {}
     shards_d0 = 0
