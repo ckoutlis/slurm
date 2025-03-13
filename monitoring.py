@@ -50,10 +50,37 @@ echo
 echo /================        SPRIO           ===============/
 sprio -o "%.15i %.8u %.15o %.10Y %.10F %.10n %.10Q"
 echo
+echo /================        MAX COMPUTE:ME           ===============/
+sacctmgr show assoc tree format=account,user,grptres%50 user=$(whoami)
+echo
+echo /================        USED/MAX STORAGE:ME           ===============/
 """
 jobs = subprocess.check_output(basic_info_commands, shell=True)
 for line in jobs.splitlines():
     logger.info(line.decode("UTF-8"))
+
+max_storage_results = subprocess.check_output(
+    "getfattr -n ceph.quota.max_bytes /mnt/cephfs/home/$(whoami)", shell=True, stderr=subprocess.DEVNULL
+)
+for line in max_storage_results.splitlines():
+    match = re.match(r'ceph.quota.max_bytes="(\d+)"', line.decode("UTF-8"))
+    if match:
+        max_storage, max_measure = int(match.group(1)) / 1024**3, "GB"
+        max_storage, max_measure = (max_storage / 1024, "TB") if max_storage >= 1000 else (max_storage, "GB")
+used_storage_results = subprocess.check_output(
+    "getfattr -n ceph.dir.rbytes /mnt/cephfs/home/$(whoami)", shell=True, stderr=subprocess.DEVNULL
+)
+for line in used_storage_results.splitlines():
+    match = re.match(r'ceph.dir.rbytes="(\d+)"', line.decode("UTF-8"))
+    if match:
+        used_storage, used_measure = int(match.group(1)) / 1024 ** (3 if max_measure == "GB" else 4), (
+            "GB" if max_measure == "GB" else "TB"
+        )
+logger.info(f"{used_storage:1.1f} {used_measure} / {max_storage:1.1f} {max_measure}")
+if used_storage >= max_storage:
+    logger.info("Storage limit reached/exceeded!")
+else:
+    logger.info(f"Free storage: {(max_storage - used_storage):1.1f} {max_measure}")
 
 # Per job: running
 squeue_command = "squeue --format='%all'"
