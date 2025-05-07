@@ -120,7 +120,7 @@ tot_cpus = sum(
 tot_host_mem = int(df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["MEMORY"].astype(int).sum() / 1000)
 tot_gpu_mem = sum(
     [
-        int(y[y.rfind("=" if "=" in y else ":") + 1 :])
+        int(y[y.find("=" if "=" in y else ":", 6) + 1 : y.rfind("(")])
         for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["GRES"].tolist()
         for y in x.split(",")
         if "shard" in y
@@ -245,7 +245,7 @@ for node in nodes:
 
     tot_node_gpu_mem = sum(
         [
-            int(y[y.rfind("=" if "=" in y else ":") + 1 :])
+            int(y[y.find("=" if "=" in y else ":", 6) + 1 : y.rfind("(")])
             for y in df_sinfo[df_sinfo["HOSTNAMES"] == node]["GRES"].values[0].split(",")
             if "shard" in y
         ]
