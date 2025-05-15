@@ -27,7 +27,7 @@ handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 
 
-gpu_type_mem = {"rtx4090": 24, "rtx3060": 12, "rtx3090ti": 24, "rtx4080": 16, "gtx1080": 8}
+gpu_type_mem = {"rtx_4090": 24, "rtx_3060": 12, "rtx_3090_ti": 24, "rtx_4080": 16, "gtx_1080": 8}
 
 squeue_csv_path = os.path.join(directory, "monitoring.csv")
 if save_squeue_csv != "y" and os.path.exists(squeue_csv_path):
@@ -103,9 +103,8 @@ for line in lines[1:]:
     data_pending.append(line.decode("UTF-8").split("|"))
 df_per_job_pending = pd.DataFrame(data=data_pending, columns=columns)
 
-
 # Per metric
-node_up_states = ["mix", "alloc", "idle"]
+node_up_states = ["mix-", "mix", "alloc", "idle"]
 sinfo_command = "sinfo --format='%.10n | %.5t | %.7z | %.8e | %.7m | %.9O | %.13C | %G'"
 sinfo = subprocess.check_output(sinfo_command, shell=True)
 lines = sinfo.splitlines()
@@ -153,7 +152,12 @@ def get_info_per_user(data):
                     ]
                 )
             elif "gres/gpu" in x:
-                gpu_type, gpu_num = x[x.find("gres/gpu") + 9 :].split(":")
+                gpu_type_num = x[x.find("gres/gpu") + 9 :]
+                if ":" in gpu_type_num:
+                    gpu_type, gpu_num = x[x.find("gres/gpu") + 9 :].split(":")
+                else:
+                    gpu_type = x[x.find("gres/gpu") + 9 :]
+                    gpu_num = 1
                 sum_gpu_mem += gpu_type_mem[gpu_type] * int(gpu_num)
         df.loc[user, "GPU_MEM_GB"] = sum_gpu_mem
     tot_jobs = df["JOBS"].sum()
