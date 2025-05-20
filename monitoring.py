@@ -50,6 +50,10 @@ echo
 echo /================        SPRIO           ===============/
 sprio -o "%.15i %.8u %.15o %.10Y %.10F %.10n %.10Q"
 echo
+echo /================        SSHARE           ===============/
+sshare -a | head -n 2
+sshare -a | tail -n +6 | sort -k 7 -rn
+echo
 echo /================        MAX COMPUTE:ME           ===============/
 sacctmgr show assoc tree format=account,user,grptres%50 user=$(whoami)
 echo
