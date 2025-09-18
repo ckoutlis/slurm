@@ -9,6 +9,27 @@ import argparse
 import re
 from pathlib import Path
 
+
+def expand_nodelist(nodelist_str):
+    if "[" not in nodelist_str:
+        return [nodelist_str]
+    base_name, bracket_part = nodelist_str.split("[")
+    ranges_str = bracket_part.rstrip("]")
+    parts = ranges_str.split(",")
+    nodes = []
+    for part in parts:
+        if "-" in part:
+            try:
+                start, end = map(int, part.split("-"))
+                for i in range(start, end + 1):
+                    nodes.append(f"{base_name}{i}")
+            except ValueError:
+                nodes.append(nodelist_str)
+        else:
+            nodes.append(f"{base_name}{part}")
+    return nodes
+
+
 parser = argparse.ArgumentParser(description="Experiments")
 parser.add_argument(
     "-s",
@@ -25,7 +46,6 @@ directory = os.path.join(Path.home(), "slurm")
 logging.basicConfig(filename=os.path.join(directory, "monitoring.log"), filemode="w", level=logging.INFO, format=FORMAT)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
-
 
 gpu_type_mem = {"rtx_4090": 24, "rtx_3060": 12, "rtx_3090_ti": 24, "rtx_4080": 16, "gtx_1080": 8}
 
@@ -142,10 +162,10 @@ def get_info_per_user(data):
         df.loc[user, "JOBS"] = data[data["USER"] == user].shape[0]
         df.loc[user, "CPUS"] = sum([int(x) for x in data["CPUS"][data["USER"] == user].tolist()])
         df.loc[user, "HOST_MEM_GB"] = sum(
-            [int(x.replace("G", "")) for x in data["MIN_MEMORY"][data["USER"] == user].tolist()]
+            [int(x[0].replace("G", "")) * int(x[1]) for x in data[["MIN_MEMORY", "NODES"]][data["USER"] == user].values]
         )
         sum_gpu_mem = 0
-        for x in data["TRES_PER_NODE"][data["USER"] == user].tolist():
+        for x, x_nodes in data[["TRES_PER_NODE", "NODES"]][data["USER"] == user].values:
             if "gres/shard" in x:
                 sum_gpu_mem += int(
                     x[
@@ -158,11 +178,11 @@ def get_info_per_user(data):
             elif "gres/gpu" in x:
                 gpu_type_num = x[x.find("gres/gpu") + 9 :]
                 if ":" in gpu_type_num:
-                    gpu_type, gpu_num = x[x.find("gres/gpu") + 9 :].split(":")
+                    gpu_type, gpu_num = gpu_type_num.split(":")
                 else:
-                    gpu_type = x[x.find("gres/gpu") + 9 :]
+                    gpu_type = gpu_type_num
                     gpu_num = 1
-                sum_gpu_mem += gpu_type_mem[gpu_type] * int(gpu_num)
+                sum_gpu_mem += gpu_type_mem[gpu_type] * int(gpu_num) * int(x_nodes)
         df.loc[user, "GPU_MEM_GB"] = sum_gpu_mem
     tot_jobs = df["JOBS"].sum()
     jobs_p = []
@@ -209,68 +229,97 @@ logger.info("\nAggregate used resources (USED/FREE/TOTAL - FREE PERC.)")
 logger.info(df_per_metric)
 
 # Per node
-nodes = df_per_job["NODELIST"].unique()
 metrics = ["CPUS", "HOST_MEM_GB", "GPU_MEM_GB"]
-df_per_node = pd.DataFrame(data=[["nan"] * len(metrics)] * len(nodes), columns=metrics, index=nodes)
+all_running_nodes = sorted(
+    list(set(node for nodes_str in df_per_job["NODELIST"] for node in expand_nodelist(nodes_str)))
+)
+df_per_node = pd.DataFrame(
+    data=[["nan"] * len(metrics)] * len(all_running_nodes), columns=metrics, index=all_running_nodes
+)
+
 sum_free_perc = []
 free_gpu_mem_ = []
-for node in nodes:
-    # CPUS
-    used_node_cpus = sum([int(x) for x in df_per_job["CPUS"][df_per_job["NODELIST"] == node].tolist()])
-    tot_node_cpus = int(df_sinfo[df_sinfo["HOSTNAMES"] == node]["CPUS(A/I/O/T)"].values[0].split("/")[-1])
-    free_node_cpus = tot_node_cpus - used_node_cpus
-    free_perc_node_cpus = free_node_cpus / tot_node_cpus
+
+for node in all_running_nodes:
+    # Find all jobs running on this specific node
+    jobs_on_node = df_per_job[df_per_job["NODELIST"].apply(lambda x: node in expand_nodelist(x))]
+
+    # Get total resources for this node
+    tot_node_info = df_sinfo[df_sinfo["HOSTNAMES"] == node]
+    if tot_node_info.empty:
+        # Handle case where a node in a running job is not found in sinfo
+        df_per_node.loc[node] = "N/A"
+        continue
+
+    # Calculate total allocated resources on this node from all jobs
+    total_used_node_cpus = 0
+    total_used_node_host_mem = 0
+    total_used_node_gpu_mem = 0
+
+    for _, job_row in jobs_on_node.iterrows():
+        expanded_nodes = expand_nodelist(job_row["NODELIST"])
+        num_nodes_in_job = len(expanded_nodes)
+
+        # Assuming resources are distributed evenly across nodes in a job
+        total_used_node_cpus += int(job_row["CPUS"]) / num_nodes_in_job
+        total_used_node_host_mem += int(job_row["MIN_MEMORY"].replace("G", ""))
+
+        sum_gpu_mem_job = 0
+        gres_str = job_row["TRES_PER_NODE"]
+        if "gres/shard" in gres_str:
+            sum_gpu_mem_job += int(gres_str[gres_str.rfind("=" if "=" in gres_str else ":") + 1 :])
+        elif "gres/gpu" in gres_str:
+            gpu_type_num = gres_str[gres_str.find("gres/gpu") + 9 :]
+            if ":" in gpu_type_num:
+                gpu_type, gpu_num = gpu_type_num.split(":")
+            else:
+                gpu_type = gpu_type_num
+                gpu_num = 1
+            sum_gpu_mem_job += gpu_type_mem[gpu_type] * int(gpu_num)
+
+        total_used_node_gpu_mem += sum_gpu_mem_job
+
+    # Get total resources for the node
+    tot_node_cpus = int(tot_node_info["CPUS(A/I/O/T)"].values[0].split("/")[-1])
+    tot_node_host_mem = int((tot_node_info["MEMORY"].astype(int) / 1000).values[0])
+    tot_node_gpu_mem = (
+        sum(
+            [
+                int(y[y.find("=" if "=" in y else ":", 6) + 1 : y.rfind("(")])
+                for y in tot_node_info["GRES"].values[0].split(",")
+                if "shard" in y
+            ]
+        )
+        if "shard" in tot_node_info["GRES"].values[0]
+        else 0
+    )
+
+    # Calculate free resources and percentages
+    free_node_cpus = tot_node_cpus - total_used_node_cpus
+    free_node_host_mem = tot_node_host_mem - total_used_node_host_mem
+    free_node_gpu_mem = tot_node_gpu_mem - total_used_node_gpu_mem
+
+    free_perc_cpus = free_node_cpus / tot_node_cpus if tot_node_cpus > 0 else 0
+    free_perc_host_mem = free_node_host_mem / tot_node_host_mem if tot_node_host_mem > 0 else 0
+    free_perc_gpu_mem = free_node_gpu_mem / tot_node_gpu_mem if tot_node_gpu_mem > 0 else 0
+
     df_per_node.loc[node, "CPUS"] = (
-        f"{used_node_cpus}/{free_node_cpus}/{tot_node_cpus} - {free_perc_node_cpus*100:1.1f}%"
+        f"{int(total_used_node_cpus)}/{int(free_node_cpus)}/{tot_node_cpus} - {free_perc_cpus*100:1.1f}%"
     )
-
-    # HOST MEM
-    used_node_host_mem = sum(
-        [int(x.replace("G", "")) for x in df_per_job["MIN_MEMORY"][df_per_job["NODELIST"] == node].tolist()]
-    )
-    tot_node_host_mem = int((df_sinfo[df_sinfo["HOSTNAMES"] == node]["MEMORY"].astype(int) / 1000).values[0])
-    free_node_host_mem = tot_node_host_mem - used_node_host_mem
-    free_perc_node_host_mem = free_node_host_mem / tot_node_host_mem
     df_per_node.loc[node, "HOST_MEM_GB"] = (
-        f"{used_node_host_mem}/{free_node_host_mem}/{tot_node_host_mem} - {free_perc_node_host_mem*100:1.1f}%"
+        f"{int(total_used_node_host_mem)}/{int(free_node_host_mem)}/{tot_node_host_mem} - {free_perc_host_mem*100:1.1f}%"
     )
-
-    # GPU MEM
-    used_node_gpu_mem = 0
-    for x in df_per_job["TRES_PER_NODE"][df_per_job["NODELIST"] == node].tolist():
-        if "gres/shard" in x:
-            used_node_gpu_mem += int(
-                x[
-                    x.rfind(
-                        "=" if "=" in x else ":",
-                    )
-                    + 1 :
-                ]
-            )
-        elif "gres/gpu" in x:
-            gpu_type, gpu_num = x[x.find("gres/gpu") + 9 :].split(":")
-            used_node_gpu_mem += gpu_type_mem[gpu_type] * int(gpu_num)
-
-    tot_node_gpu_mem = sum(
-        [
-            int(y[y.find("=" if "=" in y else ":", 6) + 1 : y.rfind("(")])
-            for y in df_sinfo[df_sinfo["HOSTNAMES"] == node]["GRES"].values[0].split(",")
-            if "shard" in y
-        ]
-    )
-    free_node_gpu_mem = tot_node_gpu_mem - used_node_gpu_mem
-    free_perc_node_gpu_mem = free_node_gpu_mem / tot_node_gpu_mem
     df_per_node.loc[node, "GPU_MEM_GB"] = (
-        f"{used_node_gpu_mem}/{free_node_gpu_mem}/{tot_node_gpu_mem} - {free_perc_node_gpu_mem*100:1.1f}%"
+        f"{int(total_used_node_gpu_mem)}/{int(free_node_gpu_mem)}/{tot_node_gpu_mem} - {free_perc_gpu_mem*100:1.1f}%"
     )
 
-    sum_free_perc.append(free_perc_node_cpus + free_perc_node_host_mem + free_perc_node_gpu_mem)
+    sum_free_perc.append(free_perc_cpus + free_perc_host_mem + free_perc_gpu_mem)
     free_gpu_mem_.append(free_node_gpu_mem)
 
 sort_nodes_by_ = "gpu"
 assert sort_nodes_by_ in ["perc", "gpu"]
 arg = np.argsort(sum_free_perc if sort_nodes_by_ == "perc" else free_gpu_mem_)
-df_per_node = df_per_node.reindex(index=[nodes[i] for i in arg])
+df_per_node = df_per_node.reindex(index=[all_running_nodes[i] for i in arg])
 logger.info(f"\nAggregate used resources per node (USED/FREE/TOTAL - FREE PERC.) SORTED BY {sort_nodes_by_.upper()}")
 logger.info(df_per_node)
 
@@ -282,64 +331,70 @@ def get_job_info(jobid):
 
 
 # Per GPU device
+
+
+def create_gpu_dataframe(data_dict):
+    rows = []
+    for node, devices in data_dict.items():
+        if devices:
+            for device_index, device_info in devices.items():
+                device_name = device_info.get("name")
+                used_mem = device_info.get("used")
+                total_mem = device_info.get("total")
+                free_mem = total_mem - used_mem
+                row = {
+                    "node": node,
+                    "device-index": device_index,
+                    "device-name": device_name,
+                    "used": used_mem,
+                    "free": free_mem,
+                    "total": total_mem,
+                }
+                rows.append(row)
+    df = pd.DataFrame(rows)
+    return df
+
+
 logger.info(f"\nAllocated memory per GPU device (USED/FREE/TOTAL)")
 running_jobids = df_per_job["JOBID"].to_numpy()[:, 0]
 shards = {}
 for jobid in running_jobids:
     info = get_job_info(jobid)
-    node = info["Nodes"]
+    nodes = expand_nodelist(info["Nodes"])
     devices = [
         device if device[-1] != "," else device[:-1]
         for device in info["GRES"].split("shard:" if "shard:" in info["GRES"] else "gpu:")[1:]
     ]
-    if node not in shards:
-        shards[node] = {}
-    shards_d0 = 0
-    shards_d1 = 0
-    for i, text in enumerate(devices):
-        match = re.match(r"(\w+):(\d+)\((\d+)/(\d+),(\d+)/(\d+)\)", text)
-        if match:
+    for node in nodes:
+        if node not in shards:
+            shards[node] = {}
+        for i, text in enumerate(devices):
+            match = re.match(r"(\w+):(\d+)", text[: text.find("(")])
             device_name = match.group(1)
-            shards_d0 += int(match.group(3))
-            shards_d1 += int(match.group(5))
-            if f"device_{i}" not in shards[node]:
-                shards[node][f"device_{i}"] = {"name": device_name, "total": int(match.group(4 + i * 2))}
-            if "," in text and len(devices) == 1 and "device_1" not in shards[node]:
-                shards[node]["device_1"] = {"name": device_name, "total": int(match.group(6))}
-        else:
-            match = re.match(r"(\w+):(\d+)\((\d+)/(\d+)\)", text)
-            if match:
-                device_name = match.group(1)
-                shards_d0 += int(match.group(3))
-                if f"device_{i}" not in shards[node]:
-                    shards[node][f"device_{i}"] = {"name": device_name, "total": int(match.group(4))}
+            if "IDX" in text[text.find("(") :]:
+                shards_current = int(match.group(2))
+                match = re.match(r"\(IDX:(0-1|0|1)\)", text[text.find("(") :])
+                indices = [int(x) for x in match.group(1) if x != "-"]
+                for device_index in indices:
+                    shards[node][device_index] = {
+                        "used": shards_current * gpu_type_mem[device_name] // len(indices),
+                        "total": gpu_type_mem[device_name],
+                        "name": device_name,
+                    }
             else:
-                match = re.match(r"(\w+):(\d+)\(IDX:(\d+)\)", text)
-                device_name = match.group(1)
-                device_id = match.group(3)
-                exec(f"shards_d{device_id} += gpu_type_mem[device_name]")
-                if f"device_{device_id}" not in shards[node]:
-                    shards[node][f"device_{device_id}"] = {"name": device_name, "total": gpu_type_mem[device_name]}
-    if "device_0" in shards[node] and "used" not in shards[node]["device_0"]:
-        shards[node]["device_0"]["used"] = shards_d0
-    elif "device_0" in shards[node] and "used" in shards[node]["device_0"]:
-        shards[node]["device_0"]["used"] += shards_d0
-    if "device_1" in shards[node] and "used" not in shards[node]["device_1"]:
-        shards[node]["device_1"]["used"] = shards_d1
-    elif "device_1" in shards[node] and "used" in shards[node]["device_1"]:
-        shards[node]["device_1"]["used"] += shards_d1
-data = []
-for node in shards:
-    for i, device in enumerate(shards[node]):
-        shards[node][device]["free"] = shards[node][device]["total"] - shards[node][device]["used"]
-        data.append(
-            [
-                node,
-                f"{shards[node][device]['name']} ({i})",
-                shards[node][device]["used"],
-                shards[node][device]["free"],
-                shards[node][device]["total"],
-            ]
-        )
-df_per_gpu = pd.DataFrame(data=data, columns=["node", "device", "used", "free", "total"])
-logger.info(df_per_gpu.sort_values(by="free", ascending=True).to_string(index=False))
+                shards_current = int(match.group(2))
+                if shards_current > 0:
+                    match = re.match(r"\((\d+)/(\d+),(\d+)/(\d+)\)", text[text.find("(") :])
+                    device_index = np.where(np.array([int(match.group(1)), int(match.group(3))]) == shards_current)[0][
+                        0
+                    ]
+                    if device_index in shards[node]:
+                        shards[node][device_index]["used"] += shards_current
+                    else:
+                        shards[node][device_index] = {
+                            "used": shards_current,
+                            "total": gpu_type_mem[device_name],
+                            "name": device_name,
+                        }
+
+print(create_gpu_dataframe(shards))
