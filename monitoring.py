@@ -128,7 +128,7 @@ for line in lines[1:]:
 df_per_job_pending = pd.DataFrame(data=data_pending, columns=columns)
 
 # Per metric
-node_up_states = ["mix-", "mix", "alloc", "idle"]
+node_up_states = ["mix-", "mix", "alloc", "idle", "drng"]
 sinfo_command = "sinfo --format='%.10n | %.5t | %.7z | %.8e | %.7m | %.9O | %.13C | %G'"
 sinfo = subprocess.check_output(sinfo_command, shell=True)
 lines = sinfo.splitlines()
