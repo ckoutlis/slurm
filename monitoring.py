@@ -47,7 +47,7 @@ logging.basicConfig(filename=os.path.join(directory, "monitoring.log"), filemode
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 
-gpu_type_mem = {"rtx_4090": 24, "rtx_3060": 12, "rtx_3090_ti": 24, "rtx_4080": 16, "gtx_1080": 8}
+gpu_type_mem = {"rtx_5090": 32, "rtx_4090": 24, "rtx_3060": 12, "rtx_3090_ti": 24, "rtx_4080": 16, "gtx_1080": 8}
 
 squeue_csv_path = os.path.join(directory, "monitoring.csv")
 if save_squeue_csv != "y" and os.path.exists(squeue_csv_path):
@@ -137,9 +137,7 @@ columns = [x.replace(" ", "") for x in lines[0].decode("UTF-8").split("|")]
 for line in lines[1:]:
     data.append([x.replace(" ", "") for x in line.decode("UTF-8").split("|")])
 df_sinfo = pd.DataFrame(data=data, columns=columns)
-tot_cpus = sum(
-    [int(x.split("/")[-1]) for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["CPUS(A/I/O/T)"].tolist()]
-)
+tot_cpus = sum([int(x.split("/")[-1]) for x in df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["CPUS(A/I/O/T)"].tolist()])
 tot_host_mem = int(df_sinfo[df_sinfo["STATE"].isin(node_up_states)]["MEMORY"].astype(int).sum() / 1000)
 tot_gpu_mem = sum(
     [
@@ -230,12 +228,8 @@ logger.info(df_per_metric)
 
 # Per node
 metrics = ["CPUS", "HOST_MEM_GB", "GPU_MEM_GB"]
-all_running_nodes = sorted(
-    list(set(node for nodes_str in df_per_job["NODELIST"] for node in expand_nodelist(nodes_str)))
-)
-df_per_node = pd.DataFrame(
-    data=[["nan"] * len(metrics)] * len(all_running_nodes), columns=metrics, index=all_running_nodes
-)
+all_running_nodes = sorted(list(set(node for nodes_str in df_per_job["NODELIST"] for node in expand_nodelist(nodes_str))))
+df_per_node = pd.DataFrame(data=[["nan"] * len(metrics)] * len(all_running_nodes), columns=metrics, index=all_running_nodes)
 
 sum_free_perc = []
 free_gpu_mem_ = []
@@ -303,9 +297,7 @@ for node in all_running_nodes:
     free_perc_host_mem = free_node_host_mem / tot_node_host_mem if tot_node_host_mem > 0 else 0
     free_perc_gpu_mem = free_node_gpu_mem / tot_node_gpu_mem if tot_node_gpu_mem > 0 else 0
 
-    df_per_node.loc[node, "CPUS"] = (
-        f"{int(total_used_node_cpus)}/{int(free_node_cpus)}/{tot_node_cpus} - {free_perc_cpus*100:1.1f}%"
-    )
+    df_per_node.loc[node, "CPUS"] = f"{int(total_used_node_cpus)}/{int(free_node_cpus)}/{tot_node_cpus} - {free_perc_cpus*100:1.1f}%"
     df_per_node.loc[node, "HOST_MEM_GB"] = (
         f"{int(total_used_node_host_mem)}/{int(free_node_host_mem)}/{tot_node_host_mem} - {free_perc_host_mem*100:1.1f}%"
     )
@@ -362,8 +354,7 @@ for jobid in running_jobids:
     info = get_job_info(jobid)
     nodes = expand_nodelist(info["Nodes"])
     devices = [
-        device if device[-1] != "," else device[:-1]
-        for device in info["GRES"].split("shard:" if "shard:" in info["GRES"] else "gpu:")[1:]
+        device if device[-1] != "," else device[:-1] for device in info["GRES"].split("shard:" if "shard:" in info["GRES"] else "gpu:")[1:]
     ]
     for node in nodes:
         if node not in shards:
@@ -385,9 +376,7 @@ for jobid in running_jobids:
                 shards_current = int(match.group(2))
                 if shards_current > 0:
                     match = re.match(r"\((\d+)/(\d+),(\d+)/(\d+)\)", text[text.find("(") :])
-                    device_index = np.where(np.array([int(match.group(1)), int(match.group(3))]) == shards_current)[0][
-                        0
-                    ]
+                    device_index = np.where(np.array([int(match.group(1)), int(match.group(3))]) == shards_current)[0][0]
                     if device_index in shards[node]:
                         shards[node][device_index]["used"] += shards_current
                     else:
