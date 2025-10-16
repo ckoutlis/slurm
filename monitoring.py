@@ -364,8 +364,10 @@ for jobid in running_jobids:
             device_name = match.group(1)
             if "IDX" in text[text.find("(") :]:
                 shards_current = int(match.group(2))
-                match = re.match(r"\(IDX:(0-1|0|1)\)", text[text.find("(") :])
+                match = re.match(r"\(IDX:(0-1|0-2|0-3|0|1|2|3)\)", text[text.find("(") :])
                 indices = [int(x) for x in match.group(1) if x != "-"]
+                if len(indices) == 2:
+                    indices = list(range(indices[0], indices[1] + 1))
                 for device_index in indices:
                     shards[node][device_index] = {
                         "used": shards_current * gpu_type_mem[device_name] // len(indices),
